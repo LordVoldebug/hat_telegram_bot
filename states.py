@@ -37,10 +37,8 @@ def get_current_state(chat_id):
 def set_base(chat_id, mes_id):
     with TinyDB(state_by_chat_id) as db:
         person = Query()
-        try:
-            db.update({'mes_id': mes_id}, person.id == chat_id)
-        except:
-            db.insert({'mes_id': mes_id, 'state': States.START})
+        db.remove(person.id == chat_id)
+        db.insert({'mes_id': mes_id, 'state': States.START, "id" : chat_id})
 
 
 def get_base(chat_id):

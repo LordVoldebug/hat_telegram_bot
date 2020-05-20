@@ -73,7 +73,7 @@ def get_duration(chat_id):
         try:
             search = db.search(game.chat_id == chat_id)
             if len(search) != 0:
-                return str(search[0]['duration'])
+                return int(search[0]['duration'])
             return True
         except:
             return False
@@ -315,6 +315,16 @@ def set_word(chat_id):
             word = random.choice(search[0]['words'])
             db.update({'cur_word': word}, game.chat_id == chat_id)
             return word
+        except:
+            return ""
+
+
+def get_word(chat_id):
+    with TinyDB(game_id) as db:
+        game = Query()
+        try:
+            search = db.search(game.chat_id == chat_id)
+            return search[0]['cur_word']
         except:
             return ""
 

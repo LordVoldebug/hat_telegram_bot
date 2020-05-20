@@ -6,6 +6,23 @@ import user_dicts
 from texts import *
 import Game
 from json import JSONEncoder
+from multiprocessing import Process, Manager
+from time import sleep, time
+
+manager = Manager()
+timers = manager.dict()
+
+
+def set_time(chat_id):
+
+    timers[chat_id] = time() + Game.get_duration(chat_id)
+
+
+def rem_timers_id(chat_id):
+    if chat_id in timers:
+        del timers[chat_id]
+
+
 
 def _default(self, obj):
     return getattr(obj.__class__, "to_json", _default.default)(obj)
@@ -25,7 +42,6 @@ def start_message(message):
     start_game_button = types.InlineKeyboardButton(text="Начать игру", callback_data="start_game")
     rules_button = types.InlineKeyboardButton(text="Правила игры", callback_data="rules")
     dict_button = types.InlineKeyboardButton(text="Мои словари", callback_data="exist_dics")
-
     keyboard.add(start_game_button)
     keyboard.add(rules_button)
     keyboard.add(dict_button)
@@ -41,7 +57,9 @@ def start_message(message):
             bot.delete_message(message.chat.id, message.message_id)
         except:
             pass
+    print(bot_msg.message_id)
     states.set_base(message.chat.id, bot_msg.message_id)
+    print(states.get_base(message.chat.id))
 
 
 def edit2start(message):
@@ -83,7 +101,7 @@ def game_start(chat_id, new_game = True):
 
     result_txt = start_game_text
     result_txt = result_txt.replace('режимигры', Game.get_mode(chat_id))
-    result_txt = result_txt.replace('длительностьхода', Game.get_duration(chat_id))
+    result_txt = result_txt.replace('длительностьхода', str(Game.get_duration(chat_id)))
 
 
     bot.edit_message_text(chat_id=chat_id, message_id=states.get_base(chat_id), text=result_txt,
@@ -201,6 +219,7 @@ def process_users(chat_id, error_message="", new_size = -1):
 
 
 def show_game_screen(chat_id):
+    rem_timers_id(chat_id)
     keyboard = types.InlineKeyboardMarkup()
     hello_button = types.InlineKeyboardButton(text="Закончить игру", callback_data="hello")
     keyboard.add(hello_button)
@@ -223,11 +242,13 @@ def show_game_screen(chat_id):
                           reply_markup=keyboard, parse_mode='MARKDOWN')
 
 
-def show_explanation_screen(chat_id):
+def show_explanation_screen(chat_id, tm):
     keyboard = types.InlineKeyboardMarkup()
 
     states.set_state(chat_id, States.EXPLANATION_SCREEN)
-    msg = Game.get_hat_words_message(chat_id) + '\n\n' + Game.set_word(chat_id)
+
+    word = Game.get_word(chat_id)
+    msg = Game.get_hat_words_message(chat_id) + '\n\n*Слово: *' + word + "\n\n*Осталось времени:* " + str(tm)
 
     conceed_button = types.InlineKeyboardButton(text="Сдаться", callback_data="conceed")
     keyboard.add(conceed_button)
@@ -319,110 +340,114 @@ def add_user(message):
     except:
         pass
 
+
+
+
+def check_time_updates():
+    global timers, manager
+    while True:
+        for i in dict(timers):
+            if timers[i] >= 0:
+                try:
+                    show_explanation_screen(i, max(0, int(timers[i] - time())))
+                except:
+                    pass
+        sleep(0.1)
+
+def show_now(chat_id):
+    show_explanation_screen(chat_id, timers[chat_id])
+
+
+p1 = Process(target=check_time_updates, args=())
+p1.start()
+
+
+
 @bot.callback_query_handler(func=lambda call: True)
 def callback_inline(call):
     uid = call.from_user.id
-    if call.message:
-        if call.data == "hello":
-            edit2start(call.message)
-        if call.data == "rules":
-            edit2rules(call.message)
-        if call.data == "exist_dics":
-            exist_dics(call.message.chat.id, uid)
-        if call.data == "rem_dict":
-            rem_dict(call.message, uid)
-        if call.data == "start_game":
-            game_start(call.message.chat.id)
-        if call.data == "start_game_save":
-            game_start(call.message.chat.id, False)
-        if call.data == "choose_dicts":
-            try:
+    try:
+
+        if call.message:
+            if call.data == "hello":
+                edit2start(call.message)
+            if call.data == "rules":
+                edit2rules(call.message)
+            if call.data == "exist_dics":
+                exist_dics(call.message.chat.id, uid)
+            if call.data == "rem_dict":
+                rem_dict(call.message, uid)
+            if call.data == "start_game":
+                game_start(call.message.chat.id)
+            if call.data == "start_game_save":
+                game_start(call.message.chat.id, False)
+            if call.data == "choose_dicts":
                 choose_dicts(call.message.chat.id, uid)
-            except:
-                pass
-        if call.data == "stats":
-            show_stats(call.message.chat.id)
-
-        if call.data == "stats_back":
-            show_game_screen(call.message.chat.id)
-        if call.data == "explain":
-            show_explanation_screen(call.message.chat.id)
-        if call.data == "conceed":
-            Game.next_pair(call.message.chat.id)
-            show_game_screen(call.message.chat.id)
-        if call.data == "accepted":
-            Game.remove_word(call.message.chat.id)
-            Game.add_stats(call.message.chat.id)
-            if Game.get_hat_words(call.message.chat.id) == 0:
+            if call.data == "stats":
+                show_stats(call.message.chat.id)
+            if call.data == "stats_back":
                 show_game_screen(call.message.chat.id)
-            else:
-                show_explanation_screen(call.message.chat.id)
+            if call.data == "explain":
+                Game.set_word(call.message.chat.id)
+                set_time(call.message.chat.id)
+                # show_explanation_screen(call.message.chat.id)
+            if call.data == "conceed":
+                Game.next_pair(call.message.chat.id)
+                show_game_screen(call.message.chat.id)
+            if call.data == "accepted":
+                Game.remove_word(call.message.chat.id)
+                Game.add_stats(call.message.chat.id)
+                if Game.get_hat_words(call.message.chat.id) == 0 or timers[call.message.chat.id] < time():
+                    show_game_screen(call.message.chat.id)
+                else:
+                    Game.set_word(call.message.chat.id)
+                    show_now(call.message.chat.id)
+                    pass
+                    # set_time(call.message.chat.id)
+                    # show_explanation_screen(call.message.chat.id)
 
-        if call.data == "error":
-            Game.remove_word(call.message.chat.id)
-            Game.next_pair(call.message.chat.id)
-            show_game_screen(call.message.chat.id)
-
-        if call.data == "toggle_multi_mode":
-            Game.set_mode(call.message.chat.id, 0)
-            try:
+            if call.data == "error":
+                Game.remove_word(call.message.chat.id)
+                Game.next_pair(call.message.chat.id)
+                show_game_screen(call.message.chat.id)
+            if call.data == "toggle_multi_mode":
+                Game.set_mode(call.message.chat.id, 0)
                 game_start(call.message.chat.id, False)
-            except:
-                pass
-        if call.data == "toggle_pair_mode":
-            Game.set_mode(call.message.chat.id, 1)
-            try:
+            if call.data == "toggle_pair_mode":
+                Game.set_mode(call.message.chat.id, 1)
                 game_start(call.message.chat.id, False)
-            except:
-                pass
-        if call.data == "players_settings":
-            process_users(call.message.chat.id)
-
-
-        if call.data == "begin_game":
-            try:
+            if call.data == "players_settings":
+                process_users(call.message.chat.id)
+            if call.data == "begin_game":
                 res = Game.start_game(call.message.chat.id)
                 if res[0] != "good":
                     print(res)
                     process_users(call.message.chat.id, res[1])
                 else:
                     show_game_screen(call.message.chat.id)
-            except:
-                pass
 
-        if call.data == "shuffle_players":
-            try:
+            if call.data == "shuffle_players":
                 Game.shuffle_players(call.message.chat.id)
                 process_users(call.message.chat.id)
-            except:
-                pass
 
-        try:
-            if call.data[:len(add_words_keyword)] == add_words_keyword:
+            if call.data.startswith(add_words_keyword):
                 dict_name = call.data[len(add_words_keyword):]
                 process_dict(call.message.chat.id, uid, dict_name)
-            if call.data[:len(rem_word_keyword)] == rem_word_keyword:
+            if call.data.startswith(rem_word_keyword):
                 dict_name, word = call.data[len(rem_word_keyword):].split('_')
                 user_dicts.rem_word(uid, dict_name, word)
                 process_dict(call.message.chat.id, uid, dict_name)
 
-            if call.data[:len(toggle_dicts_keyword)] == toggle_dicts_keyword:
+            if call.data.startswith(toggle_dicts_keyword):
                 dict_name = call.data[len(toggle_dicts_keyword):]
                 Game.toggle_dicts(call.message.chat.id, dict_name, uid)
-                try:
-                    choose_dicts(call.message.chat.id, uid)
-                except:
-                    pass
-
-            if call.data[:len(rem_user_keyword)] == rem_user_keyword:
+                choose_dicts(call.message.chat.id, uid)
+            if call.data.startswith(rem_user_keyword):
                 user_name = call.data[len(rem_user_keyword):]
                 Game.rem_player(call.message.chat.id, user_name)
-                try:
-                    process_users(call.message.chat.id)
-                except:
-                    pass
-        except:
-            pass
+                process_users(call.message.chat.id)
+    except:
+        pass
 
 
 bot.infinity_polling()
